@@ -87,20 +87,52 @@ namespace UnsplashAutomation.Pages
 
         public bool IsBookmarked() // Kiểm tra xem ảnh hiện tại có đang được bookmark hay không
         {
-            Console.WriteLine("Checking if photo is bookmarked...");
+            Console.WriteLine($"Checking if photo is bookmarked... URL: {driver.Url}, Title: {driver.Title}");
+            IWebElement bookmarkBtn = null;
             try
             {
-                // Tìm nút Bookmark (thông qua icon hoặc aria-label)
-                var bookmarkBtn = wait.Until(ExpectedConditions.ElementIsVisible(By.XPath("//button[contains(@aria-label, 'Bookmark') or contains(@aria-label, 'Collection')] | //button[.//svg[contains(@class, 'bookmarked')]]")));
-                
-                string ariaLabel = bookmarkBtn.GetAttribute("aria-label") ?? "";
-                string title = bookmarkBtn.GetAttribute("title") ?? "";
-                
-                // Nếu label chứa "Remove" nghĩa là đã được bookmark
-                return ariaLabel.Contains("Remove") || title.Contains("Remove") || bookmarkBtn.FindElements(By.XPath(".//*[contains(@class, 'bookmarked')]")).Any();
+                // Wait for the button to be visible first
+                // Use a more robust locator covering case variations and text content
+                var bookmarkBtnLocator = By.XPath("//button[contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'bookmark') or contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'collection') or contains(., 'Collect') or contains(., 'Bn')] | //button[.//svg[contains(@class, 'bookmarked')]]");
+                bookmarkBtn = wait.Until(ExpectedConditions.ElementIsVisible(bookmarkBtnLocator));
             }
-            catch
+            catch (WebDriverTimeoutException)
             {
+                Console.WriteLine("Timeout: Bookmark button not found on the page.");
+                return false;
+            }
+
+            try
+            {
+                // Wait for the state to reflect "bookmarked" (e.g. label contains "Remove" or has class "bookmarked")
+                return wait.Until(d => {
+                    try {
+                        string label = bookmarkBtn.GetAttribute("aria-label") ?? "";
+                        string title = bookmarkBtn.GetAttribute("title") ?? "";
+                        bool isBookmarked = label.Contains("Remove", StringComparison.OrdinalIgnoreCase) || 
+                                          title.Contains("Remove", StringComparison.OrdinalIgnoreCase) || 
+                                          bookmarkBtn.FindElements(By.XPath(".//*[contains(@class, 'bookmarked')]")).Any();
+                        
+                        if (!isBookmarked) {
+                            Console.WriteLine($"Current label: '{label}', Title: '{title}' - Waiting for 'Remove' or 'bookmarked' class..."); 
+                        }
+                        return isBookmarked;
+                    } catch (StaleElementReferenceException) {
+                        // Element might have been re-rendered, find it again
+                        var bookmarkBtnLocator = By.XPath("//button[contains(@aria-label, 'Bookmark') or contains(@aria-label, 'Collection')] | //button[.//svg[contains(@class, 'bookmarked')]]");
+                        bookmarkBtn = d.FindElement(bookmarkBtnLocator);
+                        return false;
+                    }
+                });
+            }
+            catch (WebDriverTimeoutException)
+            {
+                Console.WriteLine("Timeout waiting for bookmark state to be active.");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error checking bookmark status: {ex.Message}");
                 return false;
             }
         }

@@ -38,8 +38,8 @@ namespace UnsplashAutomation.Pages
             Console.WriteLine("Scanning photo grid for an unbookmarked image..."); // Thông báo bắt đầu quét ảnh
             var photos = wait.Until(d => d.FindElements(PhotoCards)); // Lấy danh sách tất cả các ảnh đang hiện trên màn hình
             
-            // Chỉ kiểm tra 5 tấm ảnh đầu tiên để đảm bảo tốc độ
-            int scanLimit = Math.Min(5, photos.Count);
+            // Chỉ kiểm tra 20 tấm ảnh đầu tiên để đảm bảo tìm thấy ảnh chưa bookmark
+            int scanLimit = Math.Min(20, photos.Count);
             for (int i = 0; i < scanLimit; i++)
             {
                 var photo = photos[i]; // Lấy tấm ảnh thứ i trong danh sách
@@ -62,6 +62,14 @@ namespace UnsplashAutomation.Pages
                     Console.WriteLine($"Photo {i + 1} is available. Bookmarking...");
                     bookmarkBtn.Click(); // Thực hiện click nút bookmark
                     
+                    // Wait for the bookmark action to verify success (Icon changes or title becomes 'Remove')
+                    try {
+                        wait.Until(d => IsAlreadyBookmarked(bookmarkBtn)); 
+                        Console.WriteLine("Bookmark action confirmed via UI update.");
+                    } catch (WebDriverTimeoutException) {
+                        Console.WriteLine("Warning: UI did not update to 'Bookmarked' in time, but proceeding to check Details page...");
+                    }
+
                     // Click vào tấm ảnh để mở trang chi tiết (Details Page) để kiểm tra thêm
                     photo.Click();
                     return "Success: Found and bookmarked an available photo."; // Trả về kết quả thành công
