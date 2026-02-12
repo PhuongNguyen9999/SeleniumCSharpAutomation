@@ -35,7 +35,6 @@ steps:
     searchFolder: '$(Build.ArtifactStagingDirectory)/test-results'
   condition: succeededOrFailed()
 
-# Create a simple single-file HTML summary (index.html) from TRX files and publish it
 - powershell: |
     $resultsDir = "$(Build.ArtifactStagingDirectory)\test-results"
     $outDir = "$(Build.ArtifactStagingDirectory)\TestReports"
@@ -50,7 +49,7 @@ steps:
     }
 
     $trxFiles = Get-ChildItem -Path $resultsDir -Filter '*.trx' -Recurse | Sort-Object LastWriteTime
-    $summary = @()
+    $allTests = @()
 
     foreach ($f in $trxFiles) {
       try {
@@ -63,61 +62,165 @@ steps:
       $runName = $doc.TestRun.Name
       if (-not $runName) { $runName = $f.BaseName }
 
-      $results = @()
       $unitResults = $doc.TestRun.Results.UnitTestResult
       if ($null -eq $unitResults) { $unitResults = @() }
 
       foreach ($r in $unitResults) {
-        $results += [PSCustomObject]@{
+        # Extract test steps from StdOut or Output
+        $output = $r.Output.StdOut
+        $steps = @()
+        
+        if ($output) {
+          $lines = $output -split "`n"
+          foreach ($line in $lines) {
+            $trimmed = $line.Trim()
+            if ($trimmed -and -not $trimmed.StartsWith("at ")) {
+              $steps += $trimmed
+            }
+          }
+        }
+
+        $allTests += [PSCustomObject]@{
           TestName = $r.testName
           Outcome = $r.outcome
           Duration = $r.duration
+          Steps = $steps
+          File = $f.Name
+          Run = $runName
+          StartTime = $r.startTime
+          EndTime = $r.endTime
         }
-      }
-
-      $summary += [PSCustomObject]@{
-        File = $f.Name
-        Run = $runName
-        Passed = ($results | Where-Object { $_.Outcome -eq 'Passed' }).Count
-        Failed = ($results | Where-Object { $_.Outcome -eq 'Failed' }).Count
-        Skipped = ($results | Where-Object { $_.Outcome -eq 'NotExecuted' -or $_.Outcome -eq 'Skipped' }).Count
-        Total = $results.Count
-        Details = $results
       }
 
       # Copy TRX to reports folder for reference
       Copy-Item -Path $f.FullName -Destination $outDir -Force
     }
 
+    # Calculate summary
+    $totalTests = $allTests.Count
+    $passedTests = ($allTests | Where-Object { $_.Outcome -eq 'Passed' }).Count
+    $failedTests = ($allTests | Where-Object { $_.Outcome -eq 'Failed' }).Count
+    $skippedTests = ($allTests | Where-Object { $_.Outcome -eq 'NotExecuted' -or $_.Outcome -eq 'Skipped' }).Count
+
     # Build HTML
-    $html = "<html><head><meta charset='utf-8'><title>Test Report</title>
-    <style>body{font-family:Segoe UI,Arial;margin:20px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px}th{background:#f4f4f4}</style>
-    </head><body>
-    <h1>Test Report</h1>
-    <h2>Summary</h2>
-    <table>
-      <tr><th>Run</th><th>File</th><th>Total</th><th>Passed</th><th>Failed</th><th>Skipped</th></tr>"
+    $html = @"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <title>Test Report</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 30px; }
+        h1 { color: #333; margin-bottom: 20px; border-bottom: 3px solid #0078d4; padding-bottom: 10px; }
+        h2 { color: #0078d4; margin-top: 30px; margin-bottom: 15px; }
+        .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }
+        .summary-card { padding: 20px; border-radius: 8px; color: white; text-align: center; }
+        .summary-card.total { background: #0078d4; }
+        .summary-card.passed { background: #107c10; }
+        .summary-card.failed { background: #da3b01; }
+        .summary-card.skipped { background: #ffb900; }
+        .summary-card .number { font-size: 32px; font-weight: bold; }
+        .summary-card .label { font-size: 14px; margin-top: 5px; }
+        .test-item { margin-bottom: 20px; border: 1px solid #ddd; border-radius: 6px; overflow: hidden; }
+        .test-header { padding: 15px; background: #f9f9f9; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
+        .test-header:hover { background: #f0f0f0; }
+        .test-name { font-weight: 600; color: #333; }
+        .test-outcome { padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+        .outcome-passed { background: #d4edda; color: #155724; }
+        .outcome-failed { background: #f8d7da; color: #721c24; }
+        .outcome-skipped { background: #fff3cd; color: #856404; }
+        .test-duration { color: #666; font-size: 12px; margin-left: auto; margin-right: 15px; }
+        .test-details { padding: 15px; background: white; display: none; }
+        .test-details.show { display: block; }
+        .test-steps { margin-top: 10px; }
+        .step-item { padding: 10px; margin: 8px 0; background: #f5f5f5; border-left: 3px solid #0078d4; border-radius: 4px; font-size: 13px; color: #333; }
+        .step-item:before { content: '✓ '; color: #107c10; font-weight: bold; margin-right: 8px; }
+        .no-steps { color: #999; font-style: italic; }
+        .test-meta { font-size: 12px; color: #666; margin-bottom: 10px; }
+        .timestamp { color: #999; font-size: 11px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Test Execution Report</h1>
+        
+        <div class="summary">
+            <div class="summary-card total">
+                <div class="number">$totalTests</div>
+                <div class="label">Total Tests</div>
+            </div>
+            <div class="summary-card passed">
+                <div class="number">$passedTests</div>
+                <div class="label">Passed</div>
+            </div>
+            <div class="summary-card failed">
+                <div class="number">$failedTests</div>
+                <div class="label">Failed</div>
+            </div>
+            <div class="summary-card skipped">
+                <div class="number">$skippedTests</div>
+                <div class="label">Skipped</div>
+            </div>
+        </div>
 
-    foreach ($s in $summary) {
-      $html += "<tr><td>$($s.Run)</td><td><a href='$($s.File)'>$($s.File)</a></td><td>$($s.Total)</td><td>$($s.Passed)</td><td style='color:red'>$($s.Failed)</td><td>$($s.Skipped)</td></tr>"
-    }
+        <h2>Test Results</h2>
+"@
 
-    $html += "</table><hr/>"
-
-    foreach ($s in $summary) {
-      $html += "<h3>Details: $($s.Run) ($($s.File))</h3>"
-      $html += "<table><tr><th>Test</th><th>Outcome</th><th>Duration</th></tr>"
-      foreach ($d in $s.Details) {
-        $color = if ($d.Outcome -eq 'Passed') { 'green' } elseif ($d.Outcome -eq 'Failed') { 'red' } else { 'gray' }
-        $html += "<tr><td>$($d.TestName)</td><td style='color:$color'>$($d.Outcome)</td><td>$($d.Duration)</td></tr>"
+    # Add test details
+    foreach ($test in $allTests | Sort-Object { $_.Outcome -ne 'Passed' }, TestName) {
+      $outcomeClass = switch ($test.Outcome) {
+        'Passed' { 'outcome-passed' }
+        'Failed' { 'outcome-failed' }
+        default { 'outcome-skipped' }
       }
-      $html += "</table>"
+      
+      $testId = [System.Guid]::NewGuid().ToString()
+      $stepsHtml = if ($test.Steps.Count -gt 0) {
+        $test.Steps | ForEach-Object { "<div class='step-item'>$_</div>" } | Join-String
+      } else {
+        "<div class='no-steps'>No step details available</div>"
+      }
+
+      $html += @"
+        <div class="test-item">
+            <div class="test-header" onclick="document.getElementById('$testId').classList.toggle('show')">
+                <div class="test-name">$($test.TestName)</div>
+                <div class="test-duration">$($test.Duration)</div>
+                <div class="test-outcome $outcomeClass">$($test.Outcome)</div>
+            </div>
+            <div class="test-details" id="$testId">
+                <div class="test-meta">
+                    <div>File: <strong>$($test.File)</strong></div>
+                    <div>Run: <strong>$($test.Run)</strong></div>
+                    <div class="timestamp">Start: $($test.StartTime) | End: $($test.EndTime)</div>
+                </div>
+                <div class="test-steps">
+                    $stepsHtml
+                </div>
+            </div>
+        </div>
+"@
     }
 
-    $html += "</body></html>"
+    $html += @"
+    </div>
+    <script>
+        // Auto-expand failed tests
+        document.querySelectorAll('.test-item').forEach(item => {
+            if (item.querySelector('.outcome-failed')) {
+                item.querySelector('.test-details').classList.add('show');
+            }
+        });
+    </script>
+</body>
+</html>
+"@
 
     $html | Out-File -FilePath (Join-Path $outDir 'index.html') -Encoding UTF8
-  displayName: 'Generate Simple Index HTML Test Report'
+    Write-Host "HTML report generated successfully at $(Join-Path $outDir 'index.html')"
+  displayName: 'Generate Detailed HTML Test Report'
   condition: succeededOrFailed()
 
 - task: PublishBuildArtifacts@1
