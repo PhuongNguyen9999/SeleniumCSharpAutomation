@@ -39,3 +39,29 @@ steps:
     testResultsFiles: '**/*.trx'
     searchFolder: '$(Build.ArtifactStagingDirectory)/test-results'
   condition: succeededOrFailed()
+
+# Generate HTML reports from TRX files and publish as artifact
+- script: |
+    echo "Installing ReportGenerator global tool..."
+    dotnet tool install -g dotnet-reportgenerator-globaltool --version 5.1.19 || dotnet tool update -g dotnet-reportgenerator-globaltool --version 5.1.19
+  displayName: 'Install ReportGenerator'
+
+- powershell: |
+    # Ensure global tools folder is on PATH
+    $env:PATH = "$env:PATH;$env:USERPROFILE\.dotnet\tools"
+    $reports = "$(Build.ArtifactStagingDirectory)/test-results/*.trx"
+    Write-Host "Generating HTML report from: $reports"
+    if (Test-Path "$(Build.ArtifactStagingDirectory)/test-results") {
+      reportgenerator -reports:"$(Build.ArtifactStagingDirectory)/test-results/*.trx" -targetdir:"$(Build.ArtifactStagingDirectory)/TestReports" -reporttypes:Html;HtmlSummary
+    } else {
+      Write-Host "No TRX files found in $(Build.ArtifactStagingDirectory)/test-results"
+    }
+  displayName: 'Generate HTML Test Report'
+  condition: succeededOrFailed()
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)/TestReports'
+    ArtifactName: 'TestReports'
+    publishLocation: 'Container'
+  condition: succeededOrFailed()
