@@ -144,5 +144,49 @@ namespace UnsplashAutomation.Pages
             driver.Navigate().Refresh();
             System.Threading.Thread.Sleep(3000);
         }
+
+        public void ClearAllBookmarkedPhotos() // Xóa tất cả các tấm ảnh đã bookmark
+        {
+            Console.WriteLine("Starting to clear all bookmarked photos...");
+            
+            // Lặp lại cho đến khi không còn ảnh nào
+            int maxAttempts = 100; // Tối đa 100 lần xóa để tránh vòng lặp vô hạn
+            int attempt = 0;
+            
+            while (attempt < maxAttempts)
+            {
+                attempt++;
+                System.Threading.Thread.Sleep(1000);
+                
+                // Kiểm tra xem còn ảnh không
+                var photos = driver.FindElements(PhotoGridItem);
+                if (photos.Count == 0)
+                {
+                    Console.WriteLine("All photos have been cleared successfully.");
+                    break;
+                }
+
+                Console.WriteLine($"Attempt {attempt}: Found {photos.Count} photos. Removing first photo...");
+                
+                try
+                {
+                    RemoveFirstPhoto(); // Xóa ảnh đầu tiên
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Could not remove photo on attempt {attempt}: {ex.Message}");
+                    // Nếu gặp lỗi, refresh lại và thử tiếp
+                    driver.Navigate().Refresh();
+                    System.Threading.Thread.Sleep(2000);
+                }
+            }
+
+            if (attempt >= maxAttempts)
+            {
+                Console.WriteLine($"Warning: Reached maximum removal attempts ({maxAttempts}) but collection may not be fully cleared.");
+            }
+            
+            Console.WriteLine("Clear all bookmarked photos process completed.");
+        }
     }
 }

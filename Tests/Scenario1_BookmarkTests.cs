@@ -13,6 +13,7 @@ namespace UnsplashAutomation.Tests
         private LoginPage loginPage;
         private HomePage homePage;
         private PhotoDetailsPage photoDetailsPage;
+        private CollectionPage collectionPage;
 
         [SetUp] // Lệnh khởi tạo các trang TRƯỚC khi bắt đầu mỗi test case
         public void TestSetup()
@@ -20,6 +21,7 @@ namespace UnsplashAutomation.Tests
             loginPage = new LoginPage(driver);
             homePage = new HomePage(driver);
             photoDetailsPage = new PhotoDetailsPage(driver);
+            collectionPage = new CollectionPage(driver);
         }
 
         [Test] // Đánh dấu đây là một hàm chạy Test thực sự
@@ -46,6 +48,28 @@ namespace UnsplashAutomation.Tests
             
             // Khẳng định rằng ID lấy được không được để trống
             Assert.That(string.IsNullOrEmpty(photoId), Is.False, "Photo ID should be captured from the URL.");
+        }
+
+        [TearDown] // Lệnh chạy SAU khi mỗi test case hoàn thành
+        public void TestTearDown()
+        {
+            try
+            {
+                // Bước 6: Sau khi test hoàn thành, truy cập vào danh sách bookmark (Likes collection)
+                Console.WriteLine("Test completed. Navigating to bookmarks to clear all photos...");
+                driver.Navigate().GoToUrl("https://unsplash.com/t/likes"); // Truy cập trang Likes (bookmarks)
+                System.Threading.Thread.Sleep(3000); // Đợi trang load xong
+
+                // Bước 7: Xóa tất cả các tấm ảnh đã bookmark
+                collectionPage.ClearAllBookmarkedPhotos();
+                
+                Console.WriteLine("Successfully cleared all bookmarked photos.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: Could not clear bookmarks in TearDown: {ex.Message}");
+                // Không throw exception ở đây để tránh fail test do cleanup
+            }
         }
     }
 }
