@@ -40,23 +40,89 @@ steps:
     searchFolder: '$(Build.ArtifactStagingDirectory)/test-results'
   condition: succeededOrFailed()
 
-# Generate HTML reports from TRX files and publish as artifact
-- script: |
-    echo "Installing ReportGenerator global tool..."
-    dotnet tool install -g dotnet-reportgenerator-globaltool --version 5.1.19 || dotnet tool update -g dotnet-reportgenerator-globaltool --version 5.1.19
-  displayName: 'Install ReportGenerator'
-
+# Create a simple single-file HTML summary (index.html) from TRX files and publish it
 - powershell: |
-    # Ensure global tools folder is on PATH
-    $env:PATH = "$env:PATH;$env:USERPROFILE\.dotnet\tools"
-    $reports = "$(Build.ArtifactStagingDirectory)/test-results/*.trx"
-    Write-Host "Generating HTML report from: $reports"
-    if (Test-Path "$(Build.ArtifactStagingDirectory)/test-results") {
-      reportgenerator -reports:"$(Build.ArtifactStagingDirectory)/test-results/*.trx" -targetdir:"$(Build.ArtifactStagingDirectory)/TestReports" -reporttypes:"Html;HtmlSummary"
-    } else {
-      Write-Host "No TRX files found in $(Build.ArtifactStagingDirectory)/test-results"
+    $resultsDir = "$(Build.ArtifactStagingDirectory)\test-results"
+    $outDir = "$(Build.ArtifactStagingDirectory)\TestReports"
+    Write-Host "Results dir: $resultsDir"
+    if (-Not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
+
+    if (-Not (Test-Path $resultsDir)) {
+      Write-Host "No test-results directory found. Creating empty index.html"
+      $html = "<html><head><meta charset='utf-8'><title>Test Report</title></head><body><h1>No test results found</h1></body></html>"
+      $html | Out-File -FilePath (Join-Path $outDir 'index.html') -Encoding UTF8
+      exit 0
     }
-  displayName: 'Generate HTML Test Report'
+
+    $trxFiles = Get-ChildItem -Path $resultsDir -Filter '*.trx' -Recurse | Sort-Object LastWriteTime
+    $summary = @()
+
+    foreach ($f in $trxFiles) {
+      try {
+        [xml]$doc = Get-Content $f.FullName
+      } catch {
+        Write-Host "Failed to parse $($f.FullName): $_"
+        continue
+      }
+
+      $runName = $doc.TestRun.Name
+      if (-not $runName) { $runName = $f.BaseName }
+
+      $results = @()
+      $unitResults = $doc.TestRun.Results.UnitTestResult
+      if ($null -eq $unitResults) { $unitResults = @() }
+
+      foreach ($r in $unitResults) {
+        $results += [PSCustomObject]@{
+          TestName = $r.testName
+          Outcome = $r.outcome
+          Duration = $r.duration
+        }
+      }
+
+      $summary += [PSCustomObject]@{
+        File = $f.Name
+        Run = $runName
+        Passed = ($results | Where-Object { $_.Outcome -eq 'Passed' }).Count
+        Failed = ($results | Where-Object { $_.Outcome -eq 'Failed' }).Count
+        Skipped = ($results | Where-Object { $_.Outcome -eq 'NotExecuted' -or $_.Outcome -eq 'Skipped' }).Count
+        Total = $results.Count
+        Details = $results
+      }
+
+      # Copy TRX to reports folder for reference
+      Copy-Item -Path $f.FullName -Destination $outDir -Force
+    }
+
+    # Build HTML
+    $html = "<html><head><meta charset='utf-8'><title>Test Report</title>
+    <style>body{font-family:Segoe UI,Arial;margin:20px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px}th{background:#f4f4f4}</style>
+    </head><body>
+    <h1>Test Report</h1>
+    <h2>Summary</h2>
+    <table>
+      <tr><th>Run</th><th>File</th><th>Total</th><th>Passed</th><th>Failed</th><th>Skipped</th></tr>"
+
+    foreach ($s in $summary) {
+      $html += "<tr><td>$($s.Run)</td><td><a href='$($s.File)'>$($s.File)</a></td><td>$($s.Total)</td><td>$($s.Passed)</td><td style='color:red'>$($s.Failed)</td><td>$($s.Skipped)</td></tr>"
+    }
+
+    $html += "</table><hr/>"
+
+    foreach ($s in $summary) {
+      $html += "<h3>Details: $($s.Run) ($($s.File))</h3>"
+      $html += "<table><tr><th>Test</th><th>Outcome</th><th>Duration</th></tr>"
+      foreach ($d in $s.Details) {
+        $color = if ($d.Outcome -eq 'Passed') { 'green' } elseif ($d.Outcome -eq 'Failed') { 'red' } else { 'gray' }
+        $html += "<tr><td>$($d.TestName)</td><td style='color:$color'>$($d.Outcome)</td><td>$($d.Duration)</td></tr>"
+      }
+      $html += "</table>"
+    }
+
+    $html += "</body></html>"
+
+    $html | Out-File -FilePath (Join-Path $outDir 'index.html') -Encoding UTF8
+  displayName: 'Generate Simple Index HTML Test Report'
   condition: succeededOrFailed()
 
 - task: PublishBuildArtifacts@1
