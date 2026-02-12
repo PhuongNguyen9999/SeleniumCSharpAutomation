@@ -17,8 +17,21 @@ steps:
 - script: dotnet build --configuration $(buildConfiguration)
   displayName: 'Build project'
 
-- script: dotnet test --configuration $(buildConfiguration) --logger trx --results-directory $(Build.ArtifactStagingDirectory)/test-results
-  displayName: 'Run Tests'
+# Run each scenario test class separately so pipeline logs show step-by-step results
+- script: dotnet test --configuration $(buildConfiguration) --filter "FullyQualifiedName~Scenario1_BookmarkTests" --logger "trx;LogFileName=Scenario1_BookmarkTests.trx" --results-directory $(Build.ArtifactStagingDirectory)/test-results
+  displayName: 'Run Scenario 1 - Bookmark Tests'
+
+- script: dotnet test --configuration $(buildConfiguration) --filter "FullyQualifiedName~Scenario2_ProfileTests" --logger "trx;LogFileName=Scenario2_ProfileTests.trx" --results-directory $(Build.ArtifactStagingDirectory)/test-results
+  displayName: 'Run Scenario 2 - Profile Tests'
+
+- script: dotnet test --configuration $(buildConfiguration) --filter "FullyQualifiedName~Scenario3_CollectionTests" --logger "trx;LogFileName=Scenario3_CollectionTests.trx" --results-directory $(Build.ArtifactStagingDirectory)/test-results
+  displayName: 'Run Scenario 3 - Collection Tests'
+
+- script: dotnet test --configuration $(buildConfiguration) --filter "FullyQualifiedName~Scenario4_PhotoRemovalTests" --logger "trx;LogFileName=Scenario4_PhotoRemovalTests.trx" --results-directory $(Build.ArtifactStagingDirectory)/test-results
+  displayName: 'Run Scenario 4 - Photo Removal Tests'
+
+- script: dotnet test --configuration $(buildConfiguration) --filter "FullyQualifiedName~Scenario5_DownloadTests" --logger "trx;LogFileName=Scenario5_DownloadTests.trx" --results-directory $(Build.ArtifactStagingDirectory)/test-results
+  displayName: 'Run Scenario 5 - Download Tests'
 
 - task: PublishTestResults@2
   inputs:
