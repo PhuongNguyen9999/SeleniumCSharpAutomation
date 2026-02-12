@@ -52,7 +52,7 @@ steps:
     $reports = "$(Build.ArtifactStagingDirectory)/test-results/*.trx"
     Write-Host "Generating HTML report from: $reports"
     if (Test-Path "$(Build.ArtifactStagingDirectory)/test-results") {
-      reportgenerator -reports:"$(Build.ArtifactStagingDirectory)/test-results/*.trx" -targetdir:"$(Build.ArtifactStagingDirectory)/TestReports" -reporttypes:Html;HtmlSummary
+      reportgenerator -reports:"$(Build.ArtifactStagingDirectory)/test-results/*.trx" -targetdir:"$(Build.ArtifactStagingDirectory)/TestReports" -reporttypes:"Html;HtmlSummary"
     } else {
       Write-Host "No TRX files found in $(Build.ArtifactStagingDirectory)/test-results"
     }
