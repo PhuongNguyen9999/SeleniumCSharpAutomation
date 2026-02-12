@@ -140,7 +140,8 @@ steps:
       $testId = [System.Guid]::NewGuid().ToString()
       
       $sw.WriteLine("<div class='test-item'>")
-      $sw.WriteLine("<div class='test-header' onclick=\"document.getElementById('$testId').classList.toggle('show')\">")
+      $onclickScript = "document.getElementById('" + $testId + "').classList.toggle('show')"
+      $sw.WriteLine("<div class='test-header' onclick='$onclickScript'>")
       $sw.WriteLine("<span>$($test.TestName)</span>")
       $sw.WriteLine("<span style='color:#666;font-size:12px'>$($test.Duration)</span>")
       $sw.WriteLine("<span class='test-outcome $outcomeClass'>$($test.Outcome)</span>")
