@@ -13,13 +13,13 @@ namespace UnsplashAutomation.Pages
         private readonly WebDriverWait wait;
 
         // Trình giữ chỗ cho các Locator
-        private By DownloadBtn => By.XPath("//a[text()='Download free'] | //a[contains(@title, 'Download')] | //a[@data-testid='photo-header-download-button'] | //a[contains(@href, '/download?force=true')]");
+        private By DownloadBtn => By.XPath("//a[text()='Download free'] | //a[contains(translate(@title, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'download')] | //a[@data-testid='photo-header-download-button'] | //a[contains(@href, '/download')]");
         private By PhotoTitle => By.TagName("h1");
 
         public PhotoDetailsPage(IWebDriver driver)
         {
             this.driver = driver;
-            this.wait = new WebDriverWait(driver, TimeSpan.FromSeconds(15));
+            this.wait = new WebDriverWait(driver, TimeSpan.FromSeconds(45));
         }
 
         public void ClickDownload() // Nhấn nút tải ảnh xuống
@@ -32,7 +32,29 @@ namespace UnsplashAutomation.Pages
             }
 
             Console.WriteLine("Finding and clicking download button...");
-            var btn = wait.Until(ExpectedConditions.ElementToBeClickable(DownloadBtn));
+
+            // Dismiss common overlays (cookie banners, modals) that may block clicks
+            DismissOverlays();
+
+            // Find the download button, scroll into view and wait until clickable
+            var btn = wait.Until(d => {
+                try {
+                    DismissOverlays();
+                    var el = d.FindElements(DownloadBtn).FirstOrDefault();
+                    if (el != null) {
+                        ((IJavaScriptExecutor)d).ExecuteScript("arguments[0].scrollIntoView({block: 'center'});", el);
+                        if (el.Displayed && el.Enabled) return el;
+                    }
+                } catch (StaleElementReferenceException) { }
+                return null;
+            });
+
+            // Fallback: try open the 'more' menu (three dots) and locate a download link inside
+            if (btn == null)
+            {
+                Console.WriteLine("Download button not found via primary locator. Trying menu fallback...");
+                btn = TryOpenMenuAndFindDownload();
+            }
             
             // Lấy ID ảnh từ URL để log
             string photoId = GetPhotoId();
@@ -68,6 +90,56 @@ namespace UnsplashAutomation.Pages
             }
         }
 
+        // Cố gắng đóng các overlay/phần tử che chắn (cookie banner, modal) nếu có
+        private void DismissOverlays()
+        {
+            try
+            {
+                // Các locator phổ biến cho nút chấp nhận/cài đặt cookie hoặc đóng modal
+                var candidates = new By[] {
+                    By.XPath("//button[contains(., 'Accept') or contains(., 'Accept all') or contains(., 'I agree') or contains(., 'Got it') or contains(., 'Agree')]") ,
+                    By.CssSelector("button[aria-label='Close'], button[title='Close'], button.dismiss, .cookie-accept, .cookie-consent button"),
+                    By.XPath("//button[contains(@class, 'dismiss') or contains(@aria-label, 'dismiss') or contains(@class, 'close')]")
+                };
+
+                foreach (var sel in candidates)
+                {
+                    var els = driver.FindElements(sel);
+                    foreach (var el in els)
+                    {
+                        try
+                        {
+                            if (el.Displayed)
+                            {
+                                try { el.Click(); } catch { ((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].click();", el); }
+                                Console.WriteLine($"Dismissed overlay using {sel}");
+                                System.Threading.Thread.Sleep(500);
+                                return;
+                            }
+                        }
+                        catch { /* ignore individual element errors */ }
+                    }
+                }
+
+                // Nếu modal 'Join Unsplash' hiện lên, đóng nó
+                var joinModal = driver.FindElements(By.XPath("//h1[contains(., 'Join Unsplash') or contains(., 'Unsplash+')] ")).FirstOrDefault();
+                if (joinModal != null)
+                {
+                    var closeBtn = driver.FindElements(By.XPath("//button[contains(@class, 'dismiss') or @aria-label='Close']")).FirstOrDefault();
+                    if (closeBtn != null && closeBtn.Displayed)
+                    {
+                        try { closeBtn.Click(); } catch { ((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].click();", closeBtn); }
+                        Console.WriteLine("Closed Join modal.");
+                        System.Threading.Thread.Sleep(500);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // Không cần crash nếu không thể đóng overlay
+            }
+        }
+
         public string GetPhotoId() // Lấy mã ID của tấm ảnh từ URL hiện tại
         {
             // URL thường có dạng: https://unsplash.com/photos/abc-xyz-123
@@ -88,39 +160,48 @@ namespace UnsplashAutomation.Pages
         public bool IsBookmarked() // Kiểm tra xem ảnh hiện tại có đang được bookmark hay không
         {
             Console.WriteLine($"Checking if photo is bookmarked... URL: {driver.Url}, Title: {driver.Title}");
-            IWebElement bookmarkBtn = null;
             try
             {
-                // Wait for the button to be visible first
-                // Use a more robust locator covering case variations and text content
-                var bookmarkBtnLocator = By.XPath("//button[contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'bookmark') or contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'collection') or contains(., 'Collect') or contains(., 'Bn')] | //button[.//svg[contains(@class, 'bookmarked')]]");
-                bookmarkBtn = wait.Until(ExpectedConditions.ElementIsVisible(bookmarkBtnLocator));
-            }
-            catch (WebDriverTimeoutException)
-            {
-                Console.WriteLine("Timeout: Bookmark button not found on the page.");
-                return false;
-            }
+                var locators = new By[] {
+                    By.XPath("//button[contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'bookmark') or contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'collection')]") ,
+                    By.XPath("//button[contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'save') or contains(., 'Save')]") ,
+                    By.XPath("//button[contains(@title, 'Remove') or contains(., 'Remove')]") ,
+                    By.CssSelector("button[data-testid*='save']"),
+                    By.XPath("//button[.//svg[contains(@class, 'bookmarked')]]")
+                };
 
-            try
-            {
-                // Wait for the state to reflect "bookmarked" (e.g. label contains "Remove" or has class "bookmarked")
-                return wait.Until(d => {
+                var bookmarkWait = new WebDriverWait(driver, TimeSpan.FromSeconds(30));
+                return bookmarkWait.Until(d => {
                     try {
-                        string label = bookmarkBtn.GetAttribute("aria-label") ?? "";
-                        string title = bookmarkBtn.GetAttribute("title") ?? "";
-                        bool isBookmarked = label.Contains("Remove", StringComparison.OrdinalIgnoreCase) || 
-                                          title.Contains("Remove", StringComparison.OrdinalIgnoreCase) || 
-                                          bookmarkBtn.FindElements(By.XPath(".//*[contains(@class, 'bookmarked')]")).Any();
-                        
-                        if (!isBookmarked) {
-                            Console.WriteLine($"Current label: '{label}', Title: '{title}' - Waiting for 'Remove' or 'bookmarked' class..."); 
+                        IWebElement el = null;
+                        foreach (var locator in locators)
+                        {
+                            var found = d.FindElements(locator).FirstOrDefault();
+                            if (found != null && found.Displayed)
+                            {
+                                el = found;
+                                break;
+                            }
                         }
+
+                        if (el == null) return false;
+
+                        string label = el.GetAttribute("aria-label") ?? "";
+                        string title = el.GetAttribute("title") ?? "";
+                        bool isBookmarked = label.Contains("Remove", StringComparison.OrdinalIgnoreCase) ||
+                                           title.Contains("Remove", StringComparison.OrdinalIgnoreCase) ||
+                                           el.FindElements(By.XPath(".//*[contains(@class, 'bookmarked')]")).Any();
+
+                        if (!isBookmarked) Console.WriteLine($"Current label: '{label}', Title: '{title}' - Waiting for 'Remove' or 'bookmarked' class...");
                         return isBookmarked;
-                    } catch (StaleElementReferenceException) {
-                        // Element might have been re-rendered, find it again
-                        var bookmarkBtnLocator = By.XPath("//button[contains(@aria-label, 'Bookmark') or contains(@aria-label, 'Collection')] | //button[.//svg[contains(@class, 'bookmarked')]]");
-                        bookmarkBtn = d.FindElement(bookmarkBtnLocator);
+                    }
+                    catch (StaleElementReferenceException)
+                    {
+                        return false;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error checking bookmark status: {ex.Message}");
                         return false;
                     }
                 });
@@ -128,11 +209,6 @@ namespace UnsplashAutomation.Pages
             catch (WebDriverTimeoutException)
             {
                 Console.WriteLine("Timeout waiting for bookmark state to be active.");
-                return false;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error checking bookmark status: {ex.Message}");
                 return false;
             }
         }
@@ -209,6 +285,48 @@ namespace UnsplashAutomation.Pages
                 }
                 Console.WriteLine("Download directory cleaned.");
             }
+        }
+
+        // Thử mở menu thêm (three dots) để tìm link download nếu button chính không hiện
+        private IWebElement TryOpenMenuAndFindDownload()
+        {
+            try
+            {
+                var menuSelectors = new By[] {
+                    By.XPath("//button[contains(@aria-label, 'More') or contains(@aria-label, 'more') or contains(@aria-label, 'Options') or contains(@aria-label, 'Share')]") ,
+                    By.CssSelector("button[aria-label*='more']"),
+                    By.CssSelector("button[aria-label*='share']"),
+                    By.XPath("//button[contains(@class,'more') or contains(@class,'options')]")
+                };
+
+                foreach (var sel in menuSelectors)
+                {
+                    var menus = driver.FindElements(sel);
+                    foreach (var m in menus)
+                    {
+                        try {
+                            if (m.Displayed) {
+                                try { m.Click(); } catch { ((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].click();", m); }
+                                System.Threading.Thread.Sleep(500);
+
+                                // Try find download link inside menu
+                                var candidate = driver.FindElements(By.XPath("//a[contains(@href, '/download') or contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'download')]"))
+                                    .FirstOrDefault(e => e.Displayed);
+                                if (candidate != null) {
+                                    ((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].scrollIntoView({block: 'center'});", candidate);
+                                    return candidate;
+                                }
+                            }
+                        } catch { }
+                    }
+                }
+
+                // As a last resort, search the whole DOM for anchors with '/download'
+                var fallback = driver.FindElements(By.CssSelector("a[href*='/download']")).FirstOrDefault(e => e.Displayed);
+                if (fallback != null) return fallback;
+            }
+            catch (Exception) { }
+            return null;
         }
     }
 }

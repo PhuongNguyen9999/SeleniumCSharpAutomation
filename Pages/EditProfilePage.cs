@@ -41,5 +41,35 @@ namespace UnsplashAutomation.Pages
                 Console.WriteLine("No flash message detected, assuming success.");
             }
         }
+
+        // Truy cập trực tiếp vào trang chỉnh sửa hồ sơ
+        public void GoTo()
+        {
+            driver.Navigate().GoToUrl("https://unsplash.com/account");
+            System.Threading.Thread.Sleep(1000);
+        }
+
+        // Lấy tên đầy đủ (Full name) từ form chỉnh sửa nếu có
+        public string GetFullName()
+        {
+            try {
+                var possible = new By[] {
+                    By.Id("user_name"),
+                    By.Id("user_full_name"),
+                    By.Name("name"),
+                    By.Name("full_name"),
+                    By.CssSelector("input[placeholder='Full name']")
+                };
+
+                foreach (var sel in possible)
+                {
+                    try {
+                        var el = wait.Until(ExpectedConditions.ElementIsVisible(sel));
+                        if (el != null) return el.GetAttribute("value") ?? el.Text;
+                    } catch { }
+                }
+            } catch { }
+            return string.Empty;
+        }
     }
 }

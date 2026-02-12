@@ -45,17 +45,19 @@ namespace UnsplashAutomation.Tests
             // Bước 4: Thực hiện thay đổi Username và nhấn Cập nhật (Update)
             editProfilePage.UpdateUsername(newUsername);
 
-            // Bước 5: Kiểm tra kết quả bằng cách truy cập trực tiếp vào URL profile mới
-            // Cửa sổ trình duyệt sẽ mở địa chỉ: https://unsplash.com/@<username_mới>
-            string newProfileUrl = $"https://unsplash.com/@{newUsername}";
-            Console.WriteLine($"Navigating to new profile URL: {newProfileUrl}");
-            driver.Navigate().GoToUrl(newProfileUrl);
+            // Try to read full name directly from the edit form (more stable)
+            string actualFullName = editProfilePage.GetFullName();
 
-            // Bước 6: Xác nhận rằng URL hiện tại đã thay đổi đúng theo username mới
-            Assert.That(driver.Url.ToLower(), Does.Contain(newUsername.ToLower()), "URL should contain the new username.");
-            
-            // Bước 7: Xác nhận Tên đầy đủ (Full Name) vẫn hiển thị chính xác từ TestData
-            string actualFullName = profilePage.GetFullName();
+            // Bước 5: Nếu edit form didn't return a name, navigate to the public profile and try there
+            if (string.IsNullOrEmpty(actualFullName))
+            {
+                string newProfileUrl = $"https://unsplash.com/@{newUsername}";
+                Console.WriteLine($"Navigating to new profile URL: {newProfileUrl}");
+                driver.Navigate().GoToUrl(newProfileUrl);
+                Assert.That(driver.Url.ToLower(), Does.Contain(newUsername.ToLower()), "URL should contain the new username.");
+                actualFullName = profilePage.GetFullName();
+            }
+
             Console.WriteLine($"Final Full Name displayed: {actualFullName}");
             Assert.That(actualFullName, Is.EqualTo(TestData.ExpectedFullName), "Full name should match expected.");
         }

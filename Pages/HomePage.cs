@@ -316,8 +316,11 @@ namespace UnsplashAutomation.Pages
                         var link = photo.FindElements(By.CssSelector("a[href*='/photos/']")).FirstOrDefault();
                         if (link != null && link.Displayed)
                         {
-                            Console.WriteLine($"Found a valid photo: {link.GetAttribute("href")}. Opening...");
-                            try { link.Click(); } catch { ((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].click();", link); }
+                            var href = link.GetAttribute("href");
+                            Console.WriteLine($"Found a valid photo: {href}. Opening via Navigate... ");
+                            try { driver.Navigate().GoToUrl(href); } catch { ((IJavaScriptExecutor)driver).ExecuteScript("window.location.href = arguments[0];", href); }
+                            // Wait until we are on a photo details page
+                            try { wait.Until(d => d.Url.Contains("/photos/") || d.FindElements(By.TagName("h1")).Count > 0); } catch { }
                             return;
                         }
                     }

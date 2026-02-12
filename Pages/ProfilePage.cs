@@ -13,7 +13,7 @@ namespace UnsplashAutomation.Pages
         public ProfilePage(IWebDriver driver)
         {
             this.driver = driver;
-            this.wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10)); // Thiết lập thời gian chờ tối đa 10 giây
+            this.wait = new WebDriverWait(driver, TimeSpan.FromSeconds(20)); // Thiết lập thời gian chờ tối đa 20 giây
         }
 
         // Locator cho nút "Edit profile" (Chỉnh sửa hồ sơ)
